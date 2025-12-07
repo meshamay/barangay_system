@@ -41,12 +41,12 @@ class DocumentRequestController extends Controller
                 return [
                     'id' => $docRequest->id,
                     'transaction_id' => $docRequest->transaction_id,
-                    'last_name' => $formData['last_name'] ?? $user->name,
-                    'first_name' => $formData['first_name'] ?? '',
-                    'document_type' => $docRequest->document_type,
+                    'last_name' => $formData['last_name'] ?? $user->last_name ?? '',
+                    'first_name' => $formData['first_name'] ?? $user->first_name ?? '',
+                    'document_type' => str_replace('_', ' ', ucwords($docRequest->document_type)),
                     'purpose' => $docRequest->purpose,
                     'date_requested' => $docRequest->created_at->format('Y-m-d'),
-                    'status' => $docRequest->status,
+                    'status' => ucwords(str_replace('_', ' ', $docRequest->status)),
                     'status_class' => $this->getStatusClass($docRequest->status),
                 ];
             });
@@ -70,36 +70,11 @@ class DocumentRequestController extends Controller
      */
     public function store(Request $request)
     {
-        // Validate common fields
+        // Validate common fields (accept snake_case from form)
         $rules = [
-            'document_type' => 'required|in:Barangay Clearance,Barangay Certificate,Indigency Clearance,Resident Certificate',
+            'document_type' => 'required|in:barangay_clearance,barangay_certificate,indigency_clearance,resident_certificate',
             'purpose' => 'required|string|max:500',
         ];
-
-        // Add conditional validation based on document type
-        if (in_array($request->document_type, ['Barangay Clearance', 'Barangay Certificate', 'Resident Certificate'])) {
-            $rules['length_of_residency'] = 'required|string|max:100';
-            $rules['valid_id_number'] = 'required|string|max:100';
-            $rules['registered_voter'] = 'required|in:yes,no';
-            $rules['first_name'] = 'required|string|max:100';
-            $rules['middle_name'] = 'nullable|string|max:100';
-            $rules['last_name'] = 'required|string|max:100';
-            $rules['birthdate'] = 'required|date';
-            $rules['birthplace'] = 'required|string|max:200';
-            $rules['civil_status'] = 'required|string|max:50';
-        }
-
-        if ($request->document_type === 'Indigency Clearance') {
-            $rules['certificate_type'] = 'required|string|max:200';
-            $rules['other_purpose'] = 'nullable|string|max:500';
-            $rules['requirement_file'] = 'required|file|mimes:pdf,jpg,jpeg,png|max:5120'; // 5MB max
-            $rules['first_name'] = 'required|string|max:100';
-            $rules['middle_name'] = 'nullable|string|max:100';
-            $rules['last_name'] = 'required|string|max:100';
-            $rules['birthdate'] = 'required|date';
-            $rules['birthplace'] = 'required|string|max:200';
-            $rules['civil_status'] = 'required|string|max:50';
-        }
 
         $validated = $request->validate($rules);
 
@@ -124,14 +99,16 @@ class DocumentRequestController extends Controller
         // Remove file from form_data if exists (already stored separately)
         unset($formData['requirement_file']);
 
-        // Create document request
+        // Create document request with default values for required fields
         $documentRequest = DocumentRequest::create([
             'transaction_id' => $transactionId,
             'user_id' => $user->id,
             'document_type' => $validated['document_type'],
             'purpose' => $validated['purpose'],
+            'valid_id_type' => 'Not Provided',  // Default value
+            'valid_id_number' => '',            // Default empty value
+            'registered_voter' => false,        // Default value
             'status' => 'Pending',
-            'form_data' => json_encode($formData),
         ]);
 
         return response()->json([
@@ -168,12 +145,12 @@ class DocumentRequestController extends Controller
      */
     private function generateTransactionId($documentType)
     {
-        // Map document types to short codes
+        // Map document types (snake_case) to short codes
         $codes = [
-            'Barangay Clearance' => 'BC',
-            'Barangay Certificate' => 'BCERT',
-            'Indigency Clearance' => 'IC',
-            'Resident Certificate' => 'RC',
+            'barangay_clearance' => 'BC',
+            'barangay_certificate' => 'BCERT',
+            'indigency_clearance' => 'IC',
+            'resident_certificate' => 'RC',
         ];
 
         $code = $codes[$documentType] ?? 'DOC';

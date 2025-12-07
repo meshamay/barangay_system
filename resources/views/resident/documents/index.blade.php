@@ -543,8 +543,17 @@ function documentRequestApp() {
 
         openModal(documentType) {
             this.currentModal = documentType;
+            
+            // Convert display name to snake_case for API
+            const documentTypeMap = {
+                'Barangay Clearance': 'barangay_clearance',
+                'Barangay Certificate': 'barangay_certificate',
+                'Indigency Clearance': 'indigency_clearance',
+                'Resident Certificate': 'resident_certificate'
+            };
+            
             this.formData = {
-                document_type: documentType,
+                document_type: documentTypeMap[documentType] || documentType.toLowerCase().replace(/ /g, '_'),
                 first_name: '',
                 middle_name: '',
                 last_name: '',

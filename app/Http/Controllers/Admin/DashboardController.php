@@ -23,6 +23,15 @@ class DashboardController extends Controller
         $pendingResidents = User::where('role', 'resident')->where('account_status', 'pending')->count();
         $activeResidents = User::where('role', 'resident')->where('is_active', true)->count();
 
+        // New registrations this month
+        $newResidentsThisMonth = User::where('role', 'resident')
+            ->whereYear('created_at', now()->year)
+            ->whereMonth('created_at', now()->month)
+            ->count();
+
+        // Pending registrations count (alias for clarity in the view)
+        $pendingRegistrations = $pendingResidents;
+
         // Document request statistics
         $totalDocuments = DocumentRequest::count();
         $pendingDocuments = DocumentRequest::where('status', 'Pending')->count();
@@ -34,6 +43,7 @@ class DashboardController extends Controller
         $openComplaints = Complaint::where('status', 'Open')->count();
         $resolvedComplaints = Complaint::where('status', 'Resolved')->count();
         $inProgressComplaints = Complaint::where('status', 'In Progress')->count();
+        $activeComplaints = Complaint::whereIn('status', ['Open', 'In Progress'])->count();
 
         // Recent activities
         $recentDocuments = DocumentRequest::with('user')
@@ -46,6 +56,15 @@ class DashboardController extends Controller
             ->limit(5)
             ->get();
 
+        // Recent resident registrations (for table)
+        $recentRegistrations = User::where('role', 'resident')
+            ->latest()
+            ->limit(5)
+            ->get()
+            ->each(function ($user) {
+                $user->status = $user->account_status; // normalize field name for the view
+            });
+
         // Monthly document requests (last 6 months)
         $monthlyDocuments = DocumentRequest::select(
             DB::raw('strftime(\'%Y-%m\', created_at) as month'),
@@ -55,6 +74,66 @@ class DashboardController extends Controller
             ->groupBy('month')
             ->orderBy('month')
             ->get();
+
+        // Monthly activity data for the bar chart (last 6 months, fill missing with zeros)
+        $monthlyActivity = [];
+        for ($i = 5; $i >= 0; $i--) {
+            $start = now()->subMonths($i)->startOfMonth();
+            $end = (clone $start)->endOfMonth();
+            $label = $start->format('M');
+            $monthlyActivity[$label] = DocumentRequest::whereBetween('created_at', [$start, $end])->count();
+        }
+        $monthlyActivityMax = max($monthlyActivity ?: [0]) ?: 1; // avoid div-by-zero in view
+
+        // Demographics
+        $maleCount = User::where('role', 'resident')->where('gender', 'male')->count();
+        $femaleCount = User::where('role', 'resident')->where('gender', 'female')->count();
+        $totalGender = max($maleCount + $femaleCount, 1);
+        $malePercentage = round(($maleCount / $totalGender) * 100, 1);
+        $femalePercentage = round(($femaleCount / $totalGender) * 100, 1);
+
+        // Document types distribution
+        $documentTypes = DocumentRequest::select('document_type', DB::raw('count(*) as count'))
+            ->groupBy('document_type')
+            ->pluck('count', 'document_type')
+            ->toArray();
+
+        // Combine all transactions (Document Requests + Complaints)
+        $documentRequests = DocumentRequest::with('user')
+            ->orderBy('created_at', 'desc')
+            ->get()
+            ->map(function($doc) {
+                return [
+                    'transaction_id' => $doc->transaction_id,
+                    'first_name' => $doc->user->first_name ?? '',
+                    'last_name' => $doc->user->last_name ?? '',
+                    'type' => ucwords(str_replace('_', ' ', $doc->document_type)),
+                    'description' => ucwords(str_replace('_', ' ', $doc->document_type)),
+                    'date_filed' => $doc->created_at->format('M d, Y'),
+                    'date_completed' => $doc->status === 'Completed' ? ($doc->updated_at->format('M d, Y')) : null,
+                    'status' => $doc->status,
+                    'sort_date' => $doc->created_at->timestamp
+                ];
+            });
+
+        $complaints = Complaint::with('user')
+            ->orderBy('created_at', 'desc')
+            ->get()
+            ->map(function($complaint) {
+                return [
+                    'transaction_id' => 'C-' . str_pad($complaint->id, 5, '0', STR_PAD_LEFT),
+                    'first_name' => $complaint->user->first_name ?? '',
+                    'last_name' => $complaint->user->last_name ?? '',
+                    'type' => 'Complaint',
+                    'description' => $complaint->subject,
+                    'date_filed' => $complaint->created_at->format('M d, Y'),
+                    'date_completed' => in_array($complaint->status, ['Resolved', 'Closed']) ? ($complaint->updated_at->format('M d, Y')) : null,
+                    'status' => $complaint->status,
+                    'sort_date' => $complaint->created_at->timestamp
+                ];
+            });
+
+        $allTransactions = $documentRequests->concat($complaints)->sortByDesc('sort_date')->values();
 
         return view('admin.dashboard', compact(
             'totalResidents',
@@ -68,9 +147,21 @@ class DashboardController extends Controller
             'openComplaints',
             'resolvedComplaints',
             'inProgressComplaints',
+            'activeComplaints',
             'recentDocuments',
             'recentComplaints',
-            'monthlyDocuments'
+            'monthlyDocuments',
+            'monthlyActivity',
+            'monthlyActivityMax',
+            'maleCount',
+            'femaleCount',
+            'malePercentage',
+            'femalePercentage',
+            'documentTypes',
+            'recentRegistrations',
+            'newResidentsThisMonth',
+            'pendingRegistrations',
+            'allTransactions'
         ));
     }
 

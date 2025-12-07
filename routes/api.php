@@ -19,9 +19,12 @@ Route::middleware(['web', 'auth'])->group(function () {
 });
 
 // Admin Document Management API Routes (protected by auth + admin role)
-Route::middleware(['web', 'auth'])->group(function () {
+Route::middleware(['web', 'auth', 'role:admin,super_admin'])->group(function () {
     Route::get('/document-requests', [\App\Http\Controllers\Admin\AdminDocumentController::class, 'getAllRequests']);
     Route::get('/document-requests/stats', [\App\Http\Controllers\Admin\AdminDocumentController::class, 'getStats']);
     Route::get('/document-requests/{id}', [\App\Http\Controllers\Admin\AdminDocumentController::class, 'show']);
     Route::put('/document-requests/{id}', [\App\Http\Controllers\Admin\AdminDocumentController::class, 'updateStatus']);
+    
+    // Admin Complaint Stats API
+    Route::get('/admin/complaints/stats', [\App\Http\Controllers\Admin\ComplaintController::class, 'getStats']);
 });

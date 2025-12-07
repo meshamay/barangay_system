@@ -41,6 +41,17 @@ class DashboardController extends Controller
             ->take(5)
             ->get();
 
+        // Transform for Alpine.js
+        $recentDocumentsJson = $recentDocuments->map(function($doc) {
+            return [
+                'id' => $doc->id,
+                'transaction_id' => $doc->transaction_id,
+                'document_type_display' => str_replace('_', ' ', ucwords($doc->document_type)),
+                'date_requested' => $doc->created_at->format('M d, Y'),
+                'status' => ucwords(str_replace('_', ' ', $doc->status))
+            ];
+        });
+
         // Get recent announcements
         $recentAnnouncements = Announcement::where('is_active', true)
             ->where('is_published', true)
@@ -55,6 +66,7 @@ class DashboardController extends Controller
             'activeComplaints',
             'totalRequests',
             'recentDocuments',
+            'recentDocumentsJson',
             'recentAnnouncements'
         ));
     }

@@ -19,15 +19,34 @@ class ComplaintController extends Controller
             ->paginate(20);
 
         // Get statistics
-        $stats = [
-            'total' => Complaint::count(),
-            'open' => Complaint::where('status', 'Open')->count(),
-            'in_progress' => Complaint::where('status', 'In Progress')->count(),
-            'resolved' => Complaint::where('status', 'Resolved')->count(),
-            'closed' => Complaint::where('status', 'Closed')->count(),
-        ];
+        $totalCount = Complaint::count();
+        $openCount = Complaint::where('status', 'Open')->count();
+        $inProgressCount = Complaint::where('status', 'In Progress')->count();
+        $resolvedCount = Complaint::where('status', 'Resolved')->count();
+        $closedCount = Complaint::where('status', 'Closed')->count();
 
-        return view('admin.complaints.index', compact('complaints', 'stats'));
+        // Transform complaints for JavaScript
+        $complaintsJson = $complaints->map(function($c) {
+            return [
+                'id' => $c->id,
+                'resident_name' => $c->user->first_name . ' ' . $c->user->last_name,
+                'subject' => $c->subject,
+                'category' => $c->category,
+                'category_display' => ucwords(str_replace('_', ' ', $c->category)),
+                'date_filed' => $c->created_at->format('M d, Y'),
+                'status' => $c->status
+            ];
+        });
+
+        return view('admin.complaints.index', compact(
+            'complaints',
+            'complaintsJson',
+            'totalCount',
+            'openCount',
+            'inProgressCount',
+            'resolvedCount',
+            'closedCount'
+        ));
     }
 
     /**
@@ -79,5 +98,21 @@ class ComplaintController extends Controller
         return redirect()
             ->route('admin.complaints.index')
             ->with('success', 'Complaint status updated successfully');
+    }
+
+    /**
+     * Get complaint statistics for dashboard.
+     */
+    public function getStats()
+    {
+        $stats = [
+            'total' => Complaint::count(),
+            'open' => Complaint::where('status', 'Open')->count(),
+            'in_progress' => Complaint::where('status', 'In Progress')->count(),
+            'resolved' => Complaint::where('status', 'Resolved')->count(),
+            'closed' => Complaint::where('status', 'Closed')->count(),
+        ];
+
+        return response()->json($stats);
     }
 }
