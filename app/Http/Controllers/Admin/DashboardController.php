@@ -161,4 +161,140 @@ class DashboardController extends Controller
             'monthlyTrends'
         ));
     }
+
+    /**
+     * Export reports to PDF or Excel.
+     */
+    public function exportReports(Request $request)
+    {
+        $year = $request->input('export_year', now()->year);
+        $month = $request->input('export_month', now()->month);
+        $format = $request->input('format', 'pdf');
+        $sections = $request->input('sections', []);
+        
+        $startDate = date('Y-m-01', strtotime("$year-$month-01"));
+        $endDate = date('Y-m-t', strtotime("$year-$month-01"));
+
+        // Gather data
+        $data = [
+            'year' => $year,
+            'month' => date('F', strtotime("$year-$month-01")),
+            'sections' => $sections,
+        ];
+
+        if (in_array('gender', $sections)) {
+            $data['populationByGender'] = User::where('role', 'resident')
+                ->select('gender', DB::raw('count(*) as count'))
+                ->groupBy('gender')
+                ->get();
+        }
+
+        if (in_array('request_complaint', $sections)) {
+            $data['totalRequests'] = DocumentRequest::whereBetween('created_at', [$startDate, $endDate])->count();
+            $data['totalComplaints'] = Complaint::whereBetween('created_at', [$startDate, $endDate])->count();
+        }
+
+        if (in_array('document_type', $sections)) {
+            $data['documentsByType'] = DocumentRequest::select('document_type', DB::raw('count(*) as count'))
+                ->whereBetween('created_at', [$startDate, $endDate])
+                ->groupBy('document_type')
+                ->orderByDesc('count')
+                ->get();
+        }
+
+        if (in_array('request_status', $sections)) {
+            $data['documentsByStatus'] = DocumentRequest::select('status', DB::raw('count(*) as count'))
+                ->whereBetween('created_at', [$startDate, $endDate])
+                ->groupBy('status')
+                ->get();
+        }
+
+        if (in_array('complaint_type', $sections)) {
+            $data['complaintsByType'] = Complaint::select('complaint_type', DB::raw('count(*) as count'))
+                ->whereBetween('created_at', [$startDate, $endDate])
+                ->groupBy('complaint_type')
+                ->orderByDesc('count')
+                ->get();
+        }
+
+        if (in_array('complaint_status', $sections)) {
+            $data['complaintsByStatus'] = Complaint::select('status', DB::raw('count(*) as count'))
+                ->whereBetween('created_at', [$startDate, $endDate])
+                ->groupBy('status')
+                ->get();
+        }
+
+        if ($format === 'excel') {
+            return $this->exportToExcel($data);
+        }
+
+        return $this->exportToPdf($data);
+    }
+
+    /**
+     * Export to Excel format.
+     */
+    private function exportToExcel($data)
+    {
+        $filename = 'barangay_report_' . $data['year'] . '_' . $data['month'] . '.csv';
+        
+        $headers = [
+            'Content-Type' => 'text/csv',
+            'Content-Disposition' => "attachment; filename={$filename}",
+        ];
+
+        $callback = function() use ($data) {
+            $file = fopen('php://output', 'w');
+            
+            fputcsv($file, ['Barangay Management System - Report']);
+            fputcsv($file, ['Period: ' . $data['month'] . ' ' . $data['year']]);
+            fputcsv($file, ['Generated: ' . now()->format('Y-m-d H:i:s')]);
+            fputcsv($file, []);
+
+            foreach ($data['sections'] as $section) {
+                switch ($section) {
+                    case 'gender':
+                        fputcsv($file, ['POPULATION BY GENDER']);
+                        fputcsv($file, ['Gender', 'Count']);
+                        foreach ($data['populationByGender'] ?? [] as $row) {
+                            fputcsv($file, [ucfirst($row->gender ?? 'Unknown'), $row->count]);
+                        }
+                        fputcsv($file, []);
+                        break;
+
+                    case 'document_type':
+                        fputcsv($file, ['MOST REQUESTED DOCUMENTS']);
+                        fputcsv($file, ['Document Type', 'Count']);
+                        foreach ($data['documentsByType'] ?? [] as $row) {
+                            fputcsv($file, [str_replace('_', ' ', ucwords($row->document_type, '_')), $row->count]);
+                        }
+                        fputcsv($file, []);
+                        break;
+
+                    case 'complaint_type':
+                        fputcsv($file, ['MOST REPORTED COMPLAINTS']);
+                        fputcsv($file, ['Complaint Type', 'Count']);
+                        foreach ($data['complaintsByType'] ?? [] as $row) {
+                            fputcsv($file, [$row->complaint_type, $row->count]);
+                        }
+                        fputcsv($file, []);
+                        break;
+                }
+            }
+            
+            fclose($file);
+        };
+
+        return response()->stream($callback, 200, $headers);
+    }
+
+    /**
+     * Export to PDF format (simplified version).
+     */
+    private function exportToPdf($data)
+    {
+        // For now, return a simple HTML that can be printed as PDF
+        return response()->view('admin.reports-pdf', $data)
+            ->header('Content-Type', 'text/html');
+    }
 }

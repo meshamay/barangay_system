@@ -54,6 +54,9 @@ Route::middleware(['auth', 'role:admin,super_admin'])->prefix('admin')->name('ad
     
     // Officials
     Route::resource('officials', \App\Http\Controllers\Admin\OfficialController::class);
+    
+    // Export Reports
+    Route::get('/reports/export', [\App\Http\Controllers\Admin\DashboardController::class, 'exportReports'])->name('reports.export');
 });
 
 // Super Admin Routes (Protected)
